@@ -1,5 +1,5 @@
-import { MoodAnalysis } from '../common/src';
-import { logInfo, logError } from '../common/src';
+import { MoodAnalysis } from '../common';
+import { logInfo, logError } from '../common';
 
 export interface TemplateSuggestion {
   templateId: string;

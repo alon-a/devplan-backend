@@ -1,6 +1,6 @@
 import { supabase } from '../database/supabase';
 import { fileConfig } from '../config';
-import { generateFileName, isValidFileType, isValidFileSize, logError, logInfo } from '../common/src';
+import { generateFileName, isValidFileType, isValidFileSize, logError, logInfo } from '../common';
 import { Request } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
