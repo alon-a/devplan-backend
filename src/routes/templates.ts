@@ -2,9 +2,9 @@ import { Router, Request, Response } from 'express';
 import { supabase } from '../database/supabase';
 import { authenticateToken } from '../middleware/auth';
 import { Template, templateSelectorService } from '../services/templateSelectorService';
-import { logInfo, logError } from '@devplan/common';
+import { logInfo, logError } from '../common';
 import { asyncHandler } from '../middleware/errorHandler';
-import { createSuccessResponse, createErrorResponse } from '@devplan/common';
+import { createSuccessResponse, createErrorResponse } from '../common';
 
 const router: Router = Router();
 

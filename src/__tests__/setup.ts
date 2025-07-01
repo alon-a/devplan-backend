@@ -15,8 +15,8 @@ afterAll(() => {
 });
 
 // Global mocks
-jest.mock('@devplan/common', () => ({
-  ...jest.requireActual('@devplan/common'),
+jest.mock('./common', () => ({
+  ...jest.requireActual('./common'),
   logInfo: jest.fn(),
   logError: jest.fn(),
 }));

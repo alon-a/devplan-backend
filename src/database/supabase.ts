@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import config from '../config';
-import { logError, logInfo } from '@devplan/common';
+import { logError, logInfo } from '../common';
 
 // Create Supabase client
 export const supabase = createClient(

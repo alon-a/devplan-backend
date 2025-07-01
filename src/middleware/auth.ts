@@ -9,7 +9,7 @@ import {
   AuthUser, 
   sanitizeUser,
   logError 
-} from '@devplan/common';
+} from '../common';
 
 // Extend Express Request interface to include user
 declare global {

@@ -1,5 +1,5 @@
-import { MoodAnalysis } from '@devplan/common';
-import { logInfo, logError } from '@devplan/common';
+import { MoodAnalysis } from '../common';
+import { logInfo, logError } from '../common';
 
 export interface TemplateSuggestion {
   templateId: string;
