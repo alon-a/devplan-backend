@@ -9,7 +9,7 @@ import {
   AuthUser, 
   sanitizeUser,
   logError 
-} from '../../common/src';
+} from '../common/src';
 
 // Extend Express Request interface to include user
 declare global {

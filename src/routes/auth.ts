@@ -10,7 +10,7 @@ import {
   validateEmail 
 } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
-import { createSuccessResponse, createErrorResponse } from '../../common/src';
+import { createSuccessResponse, createErrorResponse } from '../common/src';
 
 const router: Router = Router();
 

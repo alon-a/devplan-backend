@@ -1,5 +1,5 @@
 import { templateSelectorService, TemplateSuggestion, Template } from '../templateSelectorService';
-import { MoodAnalysis } from '../../common/src';
+import { MoodAnalysis } from '../common/src';
 
 describe('TemplateSelectorService', () => {
   const mockTemplates: Template[] = [

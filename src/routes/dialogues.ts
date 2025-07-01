@@ -7,7 +7,7 @@ import { asyncHandler } from '../middleware/errorHandler';
 import { storageService } from '../services/storage';
 import { speechToTextMoodAnalysisService } from '../services/speechToTextMoodAnalysisService';
 import { templateSelectorService } from '../services/templateSelectorService';
-import { createSuccessResponse, createErrorResponse, validateSchema, UploadDialogueSchema, RecordDialogueSchema, logInfo, logError } from '../../common/src';
+import { createSuccessResponse, createErrorResponse, validateSchema, UploadDialogueSchema, RecordDialogueSchema, logInfo, logError } from '../common/src';
 import { generateAvatarVideo } from '../services/videoGenerationService';
 
 const router: Router = Router();

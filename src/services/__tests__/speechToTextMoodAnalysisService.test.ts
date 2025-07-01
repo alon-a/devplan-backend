@@ -1,5 +1,5 @@
 import { SpeechToTextMoodAnalysisService } from '../speechToTextMoodAnalysisService';
-import { MoodAnalysis } from '../../common/src';
+import { MoodAnalysis } from '../common/src';
 
 // Mock fetch
 global.fetch = jest.fn();
