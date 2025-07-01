@@ -1,6 +1,6 @@
 import config from '../config';
-import { logError, logInfo } from '../common';
-import { MoodAnalysis, Emotion } from '../common';
+import { logError, logInfo } from '../../common/src';
+import { MoodAnalysis, Emotion } from '../../common/src';
 
 // API Response Types
 interface ElevenLabsTranscriptionResponse {

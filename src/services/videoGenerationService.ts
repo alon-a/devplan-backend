@@ -1,6 +1,6 @@
 import { supabase } from '../database/supabase';
 import { storageService } from './storage';
-import { logInfo, logError } from '../common';
+import { logInfo, logError } from '../../common/src';
 import axios from 'axios';
 
 export type VideoProvider = 'D-ID' | 'JOGG';

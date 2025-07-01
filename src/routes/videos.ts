@@ -3,7 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { supabase } from '../database/supabase';
 import { authenticateToken, requireOwnership } from '../middleware/auth';
 import { asyncHandler } from '../middleware/errorHandler';
-import { createSuccessResponse, createErrorResponse, logInfo, logError } from '../common';
+import { createSuccessResponse, createErrorResponse, logInfo, logError } from '../../common/src';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 

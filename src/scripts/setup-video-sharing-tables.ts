@@ -1,5 +1,5 @@
 import { supabase } from '../database/supabase';
-import { logInfo, logError } from '../common';
+import { logInfo, logError } from '../../common/src';
 
 export async function setupVideoSharingTables() {
   try {

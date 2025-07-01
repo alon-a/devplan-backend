@@ -16,10 +16,11 @@
     "emitDecoratorMetadata": true,
     "baseUrl": ".",
     "paths": {
-      "@devplan/common": ["../common/src"]
+      "../common": ["common/src"],
+      "../common/*": ["common/src/*"]
     },
-    "rootDir": "../../"
+    "rootDir": "."
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "common/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 } 

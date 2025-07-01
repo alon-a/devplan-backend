@@ -1,6 +1,6 @@
 import { app, initializeServices } from './app';
 import config from './config';
-import { logInfo, logError } from '../common';
+import { logInfo, logError } from '../../common/src';
 
 const startServer = async () => {
   try {

@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { EnvironmentConfig, validateEnvironment } from '../common';
+import { EnvironmentConfig, validateEnvironment } from '../../common/src';
 
 // Load environment variables
 dotenv.config();

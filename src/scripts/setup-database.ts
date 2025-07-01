@@ -1,5 +1,5 @@
 import { supabase } from '../database/supabase';
-import { logError, logInfo } from '../common';
+import { logError, logInfo } from '../../common/src';
 
 const createTables = async () => {
   try {

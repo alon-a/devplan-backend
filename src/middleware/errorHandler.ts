@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { AppError, logError } from '../common';
+import { AppError, logError } from '../../common/src';
 
 // Error handling middleware
 export const errorHandler = (
