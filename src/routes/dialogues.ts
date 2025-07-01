@@ -1,0 +1,536 @@
+import { Router, Request, Response } from 'express';
+import { body, validationResult } from 'express-validator';
+import multer from 'multer';
+import { supabase } from '../database/supabase';
+import { authenticateToken, requireOwnership } from '../middleware/auth';
+import { asyncHandler } from '../middleware/errorHandler';
+import { storageService } from '../services/storage';
+import { speechToTextMoodAnalysisService } from '../services/speechToTextMoodAnalysisService';
+import { templateSelectorService } from '../services/templateSelectorService';
+import { createSuccessResponse, createErrorResponse, validateSchema, UploadDialogueSchema, RecordDialogueSchema, logInfo, logError } from '@devplan/common';
+import { generateAvatarVideo } from '../services/videoGenerationService';
+
+const router: Router = Router();
+
+// Configure multer for file uploads with increased size limit
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedAudioTypes = ['audio/mpeg', 'audio/wav', 'audio/m4a', 'audio/ogg', 'audio/mp3'];
+    const allowedVideoTypes = ['video/mp4', 'video/mov', 'video/avi', 'video/webm'];
+    const allowedTypes = [...allowedAudioTypes, ...allowedVideoTypes];
+    
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Invalid file type. Allowed types: ${allowedTypes.join(', ')}`));
+    }
+  }
+});
+
+// Language detection function (placeholder - would integrate with NLP API)
+const detectLanguage = async (text: string): Promise<'english' | 'hebrew' | 'unsupported'> => {
+  // Simple heuristic-based detection
+  const hebrewPattern = /[\u0590-\u05FF]/;
+  const englishPattern = /[a-zA-Z]/;
+  
+  if (hebrewPattern.test(text)) {
+    return 'hebrew';
+  } else if (englishPattern.test(text)) {
+    return 'english';
+  }
+  
+  return 'unsupported';
+};
+
+// Trigger asynchronous analysis
+const triggerAnalysis = async (dialogueId: string, audioBuffer: Buffer, originalLanguage: string) => {
+  try {
+    // Update status to processing
+    await supabase
+      .from('dialogues')
+      .update({ analysis_status: 'processing' })
+      .eq('id', dialogueId);
+
+    // Perform analysis
+    const analysisResult = await speechToTextMoodAnalysisService.analyzeAudio(audioBuffer, originalLanguage);
+
+    // Update dialogue with analysis results
+    const updateData: any = {
+      transcript: analysisResult.transcript,
+      mood_analysis: analysisResult.moodAnalysis,
+      analysis_status: 'completed',
+      language: analysisResult.language,
+      analysis_metadata: {
+        ...analysisResult.metadata,
+        api_used: analysisResult.apiUsed,
+        processing_time: analysisResult.processingTime,
+        confidence: analysisResult.confidence,
+        analyzed_at: new Date().toISOString()
+      }
+    };
+
+    // Update status to analyzed if analysis was successful
+    if (analysisResult.confidence > 0) {
+      updateData.status = 'analyzed';
+    }
+
+    await supabase
+      .from('dialogues')
+      .update(updateData)
+      .eq('id', dialogueId);
+
+    logInfo(`Analysis completed for dialogue ${dialogueId}`, {
+      apiUsed: analysisResult.apiUsed,
+      confidence: analysisResult.confidence,
+      language: analysisResult.language
+    });
+
+  } catch (error) {
+    logError(error as Error, `Analysis failed for dialogue ${dialogueId}`);
+    
+    // Update status to failed
+    await supabase
+      .from('dialogues')
+      .update({ 
+        analysis_status: 'failed',
+        analysis_metadata: {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          failed_at: new Date().toISOString()
+        }
+      })
+      .eq('id', dialogueId);
+  }
+};
+
+// Upload dialogue with file or transcript
+router.post('/upload', 
+  authenticateToken,
+  upload.single('audio_file') as any,
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.user!.id;
+    const { title, content, input_type = 'file' } = req.body;
+    
+    // Validate required fields
+    if (!title || title.trim().length === 0) {
+      return res.status(400).json(createErrorResponse('Title is required'));
+    }
+
+    let audioUrl: string | undefined;
+    let videoUrl: string | undefined;
+    let transcriptContent = content || '';
+    let detectedLanguage: 'english' | 'hebrew' | 'unsupported' = 'unsupported';
+
+    // Handle different input types
+    if (input_type === 'file' && req.file) {
+      // File upload
+      try {
+        const isVideo = req.file.mimetype.startsWith('video/');
+        const directory = isVideo ? 'video' : 'audio';
+        
+        if (isVideo) {
+          videoUrl = await storageService.uploadFile(req.file, userId, 'video');
+        } else {
+          audioUrl = await storageService.uploadFile(req.file, userId, 'audio');
+        }
+      } catch (error) {
+        return res.status(400).json(createErrorResponse('File upload failed'));
+      }
+    } else if (input_type === 'transcript') {
+      // Transcript input
+      if (!transcriptContent || transcriptContent.trim().length === 0) {
+        return res.status(400).json(createErrorResponse('Transcript content is required'));
+      }
+
+      // Detect language
+      detectedLanguage = await detectLanguage(transcriptContent);
+      
+      if (detectedLanguage === 'unsupported') {
+        return res.status(400).json(createErrorResponse(
+          'Unsupported language detected. Please provide text in English or Hebrew.'
+        ));
+      }
+
+      // Store transcript as a text file in storage
+      try {
+        const transcriptBuffer = Buffer.from(transcriptContent, 'utf-8');
+        const mockFile: Express.Multer.File = {
+          fieldname: 'transcript',
+          originalname: `transcript_${Date.now()}.txt`,
+          encoding: 'utf-8',
+          mimetype: 'text/plain',
+          buffer: transcriptBuffer,
+          size: transcriptBuffer.length
+        } as Express.Multer.File;
+
+        const transcriptUrl = await storageService.uploadFile(mockFile, userId, 'audio');
+        // For transcripts, we'll store the URL in audio_url field for consistency
+        audioUrl = transcriptUrl;
+      } catch (error) {
+        return res.status(400).json(createErrorResponse('Transcript storage failed'));
+      }
+    } else {
+      return res.status(400).json(createErrorResponse('Invalid input type or missing file'));
+    }
+
+    // Create dialogue in database
+    const { data: dialogue, error } = await supabase
+      .from('dialogues')
+      .insert({
+        user_id: userId,
+        title: title.trim(),
+        content: transcriptContent,
+        audio_url: audioUrl,
+        video_url: videoUrl,
+        status: 'draft',
+        analysis_status: 'pending',
+        language: detectedLanguage,
+        metadata: {
+          input_type,
+          language: detectedLanguage,
+          file_size: req.file?.size,
+          file_type: req.file?.mimetype,
+          uploaded_at: new Date().toISOString()
+        }
+      })
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    // Trigger analysis if we have audio/video content
+    if (req.file && req.file.buffer) {
+      triggerAnalysis(dialogue.id, req.file.buffer, detectedLanguage);
+    }
+
+    res.status(201).json(createSuccessResponse({ dialogue }, 'Dialogue uploaded successfully'));
+  })
+);
+
+// Record dialogue with audio data
+router.post('/record', 
+  authenticateToken,
+  [
+    body('title').trim().isLength({ min: 1, max: 255 }),
+    body('audio_data').notEmpty(),
+    body('template_id').optional().isUUID()
+  ],
+  asyncHandler(async (req: Request, res: Response) => {
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json(createErrorResponse(errors.array()[0].msg));
+    }
+
+    const userId = req.user!.id;
+    const { title, audio_data, template_id } = req.body;
+
+    // Validate audio data (base64)
+    if (!audio_data.startsWith('data:audio/')) {
+      return res.status(400).json(createErrorResponse('Invalid audio data format'));
+    }
+
+    try {
+      // Convert base64 to buffer
+      const base64Data = audio_data.split(',')[1];
+      const audioBuffer = Buffer.from(base64Data, 'base64');
+
+      // Create mock file for storage
+      const mockFile: Express.Multer.File = {
+        fieldname: 'audio',
+        originalname: `recording_${Date.now()}.webm`,
+        encoding: '7bit',
+        mimetype: 'audio/webm',
+        buffer: audioBuffer,
+        size: audioBuffer.length
+      } as Express.Multer.File;
+
+      // Upload audio file
+      const audioUrl = await storageService.uploadFile(mockFile, userId, 'audio');
+
+      // Create dialogue in database
+      const { data: dialogue, error } = await supabase
+        .from('dialogues')
+        .insert({
+          user_id: userId,
+          title: title.trim(),
+          content: '',
+          audio_url: audioUrl,
+          status: 'draft',
+          analysis_status: 'pending',
+          language: 'unknown',
+          template_id,
+          metadata: {
+            input_type: 'recording',
+            file_size: audioBuffer.length,
+            file_type: 'audio/webm',
+            recorded_at: new Date().toISOString()
+          }
+        })
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      // Trigger analysis
+      triggerAnalysis(dialogue.id, audioBuffer, 'unknown');
+
+      res.status(201).json(createSuccessResponse({ dialogue }, 'Dialogue recorded successfully'));
+    } catch (error) {
+      return res.status(400).json(createErrorResponse('Audio processing failed'));
+    }
+  })
+);
+
+// Get all dialogues for user
+router.get('/', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user!.id;
+  const { page = 1, limit = 10, status, analysis_status } = req.query;
+
+  let query = supabase
+    .from('dialogues')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  // Apply filters
+  if (status) {
+    query = query.eq('status', status);
+  }
+  if (analysis_status) {
+    query = query.eq('analysis_status', analysis_status);
+  }
+
+  // Apply pagination
+  const pageNum = parseInt(page as string) || 1;
+  const limitNum = parseInt(limit as string) || 10;
+  const from = (pageNum - 1) * limitNum;
+  const to = from + limitNum - 1;
+
+  query = query.range(from, to);
+
+  const { data: dialogues, error, count } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  res.json(createSuccessResponse({
+    dialogues,
+    pagination: {
+      page: pageNum,
+      limit: limitNum,
+      total: count || 0,
+      totalPages: Math.ceil((count || 0) / limitNum)
+    }
+  }));
+}));
+
+// Get specific dialogue
+router.get('/:id', authenticateToken, requireOwnership('dialogues'), asyncHandler(async (req: Request, res: Response) => {
+  const dialogueId = req.params.id;
+
+  const { data: dialogue, error } = await supabase
+    .from('dialogues')
+    .select('*')
+    .eq('id', dialogueId)
+    .single();
+
+  if (error || !dialogue) {
+    return res.status(404).json(createErrorResponse('Dialogue not found'));
+  }
+
+  res.json(createSuccessResponse({ dialogue }));
+}));
+
+// Get dialogue analysis results
+router.get('/:id/analysis', authenticateToken, requireOwnership('dialogues'), asyncHandler(async (req: Request, res: Response) => {
+  const dialogueId = req.params.id;
+
+  const { data: dialogue, error } = await supabase
+    .from('dialogues')
+    .select('analysis_status, mood_analysis, transcript, language, analysis_metadata')
+    .eq('id', dialogueId)
+    .single();
+
+  if (error || !dialogue) {
+    return res.status(404).json(createErrorResponse('Dialogue not found'));
+  }
+
+  res.json(createSuccessResponse({ analysis: dialogue }));
+}));
+
+// Update dialogue
+router.put('/:id', authenticateToken, requireOwnership('dialogues'), [
+  body('title').optional().trim().isLength({ min: 1, max: 255 }),
+  body('content').optional().trim()
+], asyncHandler(async (req: Request, res: Response) => {
+  // Check validation errors
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json(createErrorResponse(errors.array()[0].msg));
+  }
+
+  const dialogueId = req.params.id;
+  const { title, content } = req.body;
+
+  const updateData: any = {};
+  if (title !== undefined) updateData.title = title.trim();
+  if (content !== undefined) updateData.content = content.trim();
+
+  const { data: dialogue, error } = await supabase
+    .from('dialogues')
+    .update(updateData)
+    .eq('id', dialogueId)
+    .select()
+    .single();
+
+  if (error || !dialogue) {
+    return res.status(404).json(createErrorResponse('Dialogue not found'));
+  }
+
+  res.json(createSuccessResponse({ dialogue }, 'Dialogue updated successfully'));
+}));
+
+// Delete dialogue
+router.delete('/:id', authenticateToken, requireOwnership('dialogues'), asyncHandler(async (req: Request, res: Response) => {
+  const dialogueId = req.params.id;
+
+  // Get dialogue to check if it has associated files
+  const { data: dialogue, error: fetchError } = await supabase
+    .from('dialogues')
+    .select('audio_url, video_url')
+    .eq('id', dialogueId)
+    .single();
+
+  if (fetchError || !dialogue) {
+    return res.status(404).json(createErrorResponse('Dialogue not found'));
+  }
+
+  // Delete associated files from storage
+  try {
+    if (dialogue.audio_url) {
+      await storageService.deleteFile(dialogue.audio_url);
+    }
+    if (dialogue.video_url) {
+      await storageService.deleteFile(dialogue.video_url);
+    }
+  } catch (error) {
+    // Log error but continue with deletion
+    logError(error as Error, `Failed to delete files for dialogue ${dialogueId}`);
+  }
+
+  // Delete dialogue from database
+  const { error: deleteError } = await supabase
+    .from('dialogues')
+    .delete()
+    .eq('id', dialogueId);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  res.json(createSuccessResponse(null, 'Dialogue deleted successfully'));
+}));
+
+// Generate video from dialogue
+router.post('/:id/generate', authenticateToken, requireOwnership('dialogues'), [
+  body('template_id').isUUID(),
+  body('custom_settings').optional().isObject()
+], asyncHandler(async (req: Request, res: Response) => {
+  // Check validation errors
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json(createErrorResponse(errors.array()[0].msg));
+  }
+
+  const dialogueId = req.params.id;
+  const { template_id, custom_settings } = req.body;
+
+  // Get dialogue
+  const { data: dialogue, error: dialogueError } = await supabase
+    .from('dialogues')
+    .select('*')
+    .eq('id', dialogueId)
+    .single();
+
+  if (dialogueError || !dialogue) {
+    return res.status(404).json(createErrorResponse('Dialogue not found'));
+  }
+
+  // Check if dialogue is analyzed
+  if (dialogue.analysis_status !== 'completed') {
+    return res.status(400).json(createErrorResponse('Dialogue must be analyzed before generating video'));
+  }
+
+  // Get template
+  const { data: template, error: templateError } = await supabase
+    .from('templates')
+    .select('*')
+    .eq('id', template_id)
+    .single();
+
+  if (templateError || !template) {
+    return res.status(404).json(createErrorResponse('Template not found'));
+  }
+
+  try {
+    // Generate video
+    const videoResult = await generateAvatarVideo(
+      {
+        transcript: dialogue.transcript || dialogue.content,
+        moodAnalysis: dialogue.mood_analysis,
+        templateMetadata: template.metadata || {}
+      },
+      req.user!.id,
+      dialogueId,
+      template_id,
+      dialogue.id
+    );
+
+    // Create video record
+    const { data: video, error: videoError } = await supabase
+      .from('videos')
+      .insert({
+        dialogue_id: dialogueId,
+        user_id: req.user!.id,
+        template_id,
+        avatar_url: template.avatar_url,
+        audio_url: dialogue.audio_url || '',
+        video_url: videoResult.videoUrl,
+        duration: videoResult.duration || 0,
+        status: videoResult.status,
+        metadata: {
+          provider: videoResult.provider,
+          error_message: videoResult.errorMessage,
+          generated_at: new Date().toISOString()
+        }
+      })
+      .select()
+      .single();
+
+    if (videoError) {
+      throw videoError;
+    }
+
+    // Update dialogue status
+    await supabase
+      .from('dialogues')
+      .update({ status: 'generated' })
+      .eq('id', dialogueId);
+
+    res.json(createSuccessResponse({ video }, 'Video generated successfully'));
+  } catch (error) {
+    logError(error as Error, `Video generation failed for dialogue ${dialogueId}`);
+    return res.status(500).json(createErrorResponse('Video generation failed'));
+  }
+}));
+
+export default router; 
