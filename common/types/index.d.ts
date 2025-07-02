@@ -171,5 +171,4 @@ export interface EnvironmentConfig {
     JWT_SECRET: string;
     CORS_ORIGIN: string;
 }
-export type { UploadDialogueSchema, RecordDialogueSchema, GenerateVideoSchema, };
 //# sourceMappingURL=index.d.ts.map
